@@ -1,3 +1,26 @@
+## NekobaTechnology フォークについて
+
+このリポジトリは [makeding/HonomiTV](https://github.com/makeding/HonomiTV) を、自宅の環境
+(Ubuntu 24.04 / EDCB-Wine + Mirakurun / Android TV クライアントは
+[NekobaTechnology/Honorebi](https://github.com/NekobaTechnology/Honorebi)) で使うために手を入れた
+個人用フォークです。上流へのプルリクエストは今のところ出していません。
+変更はすべて `recording-chase-playback` ブランチ上のコミットとして残しています。
+
+### 変更点
+
+- **EDCB-Wine 構成で録画番組が一覧に出ない問題を修正** — EDCB が返す Windows 形式の録画パス
+  (`D:\TV-Record\foo.ts`) を `recorded_folders` 配下の候補パスに展開するようにした
+  (`server/app/utils/RecordingStatusProvider.py`)。
+- **EPG テキストに含まれる制御文字で番組表 API の JSON が壊れる問題を修正** — iPhone の Chrome 等で
+  「予期しないネットワークエラー」になっていた (`server/app/utils/TSInformation.py`)。
+- **録画ファイルのシーク位置解決 API を追加** — `GET /api/videos/{id}/seek-position?time=秒` が
+  指定時刻直前のキーフレームのバイト位置と実時刻を返す。録画ファイルを HTTP Range で直接再生する
+  クライアント (Honorebi のオリジナル画質再生) のシークを高速化するためのもの
+  (`server/app/routers/VideosRouter.py`)。
+- クライアント (`client/dist`) は上記ブランチをローカルでビルドしたものに更新。
+
+---
+
 
 # <img width="350" src="https://user-images.githubusercontent.com/39271166/134050201-8110f076-a939-4b62-8c86-7beaa3d4728c.png" alt="KonomiTV Logo">　<!-- omit in toc -->
 
