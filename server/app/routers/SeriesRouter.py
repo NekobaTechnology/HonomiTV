@@ -1,6 +1,7 @@
 
 import json
 import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -10,7 +11,13 @@ from tortoise import connections
 
 from app import logging, schemas
 from app.constants import JST
-from app.metadata.SeriesIndexer import NormalizeSeriesTitle, ParseSeriesTitle
+from app.metadata.SeriesIndexer import (
+    PROGRAM_MARK_PATTERN,
+    PROGRAM_SLOT_MARK_PATTERN,
+    NormalizeSeriesTitle,
+    ParseSeriesTitle,
+)
+from app.models.Program import Program
 from app.models.Series import Series
 from app.utils import ParseDatetimeStringToJST
 
@@ -125,6 +132,107 @@ async def SeriesSearchAPI(
     """
 
     return await GetSeriesSummaries(query=query, order=order, page=page)
+
+
+# シリーズ予約のキーワード提案で、引用符の直後に続いていれば「作品名」とみなす話数表記 (全角数字・＃ も許容)
+SERIES_KEYWORD_EPISODE_PATTERN = re.compile(
+    r'^[\s\u3000]*(?:第[\s\u3000]*[0-9０-９一二三四五六七八九十百]+[\s\u3000]*(?:話|回)|[#＃][\s\u3000]*[0-9０-９]+|[(（][\s\u3000]*[0-9０-９]+[\s\u3000]*[)）]|[0-9０-９]+[\s\u3000]*話)',
+)
+# 放送枠名とみなす引用符前の最大文字数
+SERIES_KEYWORD_SLOT_PREFIX_MAX_LENGTH = 12
+# 作品名の前後から落とす区切り文字
+SERIES_KEYWORD_STRIP_CHARS = ' \u3000・:：-−―(（!！?？~～'
+
+
+def _FindRawTitlePrefix(source: str, normalized_prefix: str) -> str | None:
+    """
+    NFKC 正規化後の作品名に対応する、正規化前 (元の文字幅) の先頭部分文字列を探す。
+    EDCB のキーワード検索は全角/半角を区別するため、番組名に含まれる元の文字をそのまま使う必要がある。
+    """
+
+    target = unicodedata.normalize('NFKC', normalized_prefix).strip(SERIES_KEYWORD_STRIP_CHARS)
+    for end in range(1, len(source) + 1):
+        candidate = source[:end]
+        if unicodedata.normalize('NFKC', candidate).strip(SERIES_KEYWORD_STRIP_CHARS) == target:
+            return candidate.strip(SERIES_KEYWORD_STRIP_CHARS)
+    return None
+
+
+def BuildSeriesKeyword(title: str, genres: list[schemas.Genre], description: str | None) -> schemas.SeriesKeywordSuggestion:
+    """
+    番組名から、キーワード自動予約で同じシリーズの各話に一致しやすい検索キーワードを組み立てる。
+    キーワードは EDCB の番組名検索にそのまま使うため、全角/半角や括弧の種類は番組名の表記を保つ。
+
+    Args:
+        title (str): EPG 由来の番組タイトル。
+        genres (list[schemas.Genre]): 番組のジャンル (アニメの末尾話数判定に使う)。
+        description (str | None): 番組概要 (話数が概要側にある局の判定に使う)。
+
+    Returns:
+        schemas.SeriesKeywordSuggestion: 提案するキーワード。
+    """
+
+    # 技術マーク ([字][解] など) と放送枠の装飾だけを落とす (文字幅は変えない)
+    source = title.strip()
+    source = PROGRAM_MARK_PATTERN.sub('', source)
+    source = re.sub(r'[(（](?:二|字|再)[)）]', '', source)
+    source = PROGRAM_SLOT_MARK_PATTERN.sub('', source).strip()
+
+    # 1. 「放送枠名「作品名」第N話 …」の形は、放送枠名ごと残すと番組名のみ検索で各話に一致しやすい
+    ##    「作品名「各話副題」」の形 (引用符の後に話数が続かない) では、引用符の前だけを作品名とみなす
+    quoted_match = re.match(
+        r'^(?P<prefix>[^「『]{0,' + str(SERIES_KEYWORD_SLOT_PREFIX_MAX_LENGTH) + r'})(?P<open>[「『])(?P<quoted>[^」』]+)(?P<close>[」』])(?P<rest>.*)$',
+        source,
+    )
+    if quoted_match is not None and not re.search(r'第[\s\u3000]*[0-9０-９一二三四五六七八九十]+[\s\u3000]*(?:話|回)|[#＃][\s\u3000]*[0-9０-９]+', quoted_match.group('prefix')):
+        prefix = quoted_match.group('prefix').strip(SERIES_KEYWORD_STRIP_CHARS)
+        quoted = quoted_match.group('quoted').strip()
+        rest = quoted_match.group('rest')
+        if SERIES_KEYWORD_EPISODE_PATTERN.match(rest) is not None or (prefix == '' and rest.strip() == ''):
+            # 元の括弧の種類 (「」/『』) をそのまま使う
+            keyword = source[:quoted_match.start('rest')].strip()
+            return schemas.SeriesKeywordSuggestion(keyword=keyword, display_title=quoted, is_series_detected=True)
+        if len(prefix) >= 2:
+            return schemas.SeriesKeywordSuggestion(keyword=prefix, display_title=prefix, is_series_detected=False)
+
+    # 2. 話数表記から作品名を確定的に抽出できる場合はそれを使う (元の文字幅に戻す)
+    parsed = ParseSeriesTitle(title, genres, description)
+    if parsed is not None and len(parsed.display_title.strip()) >= 2:
+        display_title = parsed.display_title.strip()
+        keyword = _FindRawTitlePrefix(source, display_title) or display_title
+        return schemas.SeriesKeywordSuggestion(keyword=keyword, display_title=display_title, is_series_detected=True)
+
+    # 3. 副題の区切りによく使われる記号・連続空白の手前までを作品名とみなす
+    cut = re.split(r'[★☆▽▼◆◇■□●○【▲△※]|[\s\u3000]{2,}', source, maxsplit=1)[0]
+    cut = re.sub(r'[\s\u3000]*(?:第[\s\u3000]*[0-9０-９一二三四五六七八九十]+[\s\u3000]*(?:話|回)|[#＃][\s\u3000]*[0-9０-９]+|[(（][\s\u3000]*[0-9０-９]+[\s\u3000]*[)）]).*$', '', cut)
+    cut = cut.strip(SERIES_KEYWORD_STRIP_CHARS)
+    if len(cut) < 2:
+        cut = source
+    return schemas.SeriesKeywordSuggestion(keyword=cut, display_title=cut, is_series_detected=False)
+
+
+@router.get(
+    '/keyword-suggestion',
+    summary = 'シリーズ予約キーワード提案 API',
+    response_description = '指定した番組と同じシリーズの各話に一致しやすい検索キーワード。',
+    response_model = schemas.SeriesKeywordSuggestion,
+)
+async def SeriesKeywordSuggestionAPI(
+    program_id: Annotated[str, Query(description='番組 ID 。')],
+):
+    """
+    指定した番組の番組名から、キーワード自動予約条件に使う検索キーワードを提案する。<br>
+    放送枠名 + 作品名 (例: 日曜劇場「VIVANT」) や、話数表記の手前までの作品名を返す。<br>
+    「番組名のみを検索」と組み合わせて使うことを想定している。
+    """
+
+    program = await Program.filter(id=program_id).get_or_none()
+    if program is None:
+        raise HTTPException(
+            status_code = status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail = 'Specified program_id was not found',
+        )
+    return BuildSeriesKeyword(program.title, program.genres, program.description)
 
 
 @router.get(

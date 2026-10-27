@@ -33,6 +33,15 @@ export interface IReservationConditionAddRequest {
 /**
  * キーワード自動予約条件更新リクエスト
  */
+/**
+ * シリーズ予約用のキーワード提案
+ */
+export interface ISeriesKeywordSuggestion {
+    keyword: string;
+    display_title: string;
+    is_series_detected: boolean;
+}
+
 export interface IReservationConditionUpdateRequest {
     program_search_condition: IProgramSearchCondition;
     record_settings: IRecordSettings;
@@ -171,6 +180,22 @@ class ReservationConditions {
      * @param condition_id 削除するキーワード自動予約条件の ID
      * @returns 成功した場合は true、失敗した場合は false
      */
+    /**
+     * 指定した番組と同じシリーズの各話に一致しやすい検索キーワードを取得する (HonomiTV ローカル拡張)
+     * @param program_id 番組 ID
+     * @returns キーワード提案、取得失敗時は null
+     */
+    static async fetchSeriesKeywordSuggestion(program_id: string): Promise<ISeriesKeywordSuggestion | null> {
+        const response = await APIClient.get<ISeriesKeywordSuggestion>(`/series/keyword-suggestion?program_id=${encodeURIComponent(program_id)}`);
+
+        if (response.type === 'error') {
+            APIClient.showGenericError(response, 'シリーズ予約のキーワードを取得できませんでした。');
+            return null;
+        }
+
+        return response.data;
+    }
+
     static async deleteReservationCondition(condition_id: number): Promise<boolean> {
         const response = await APIClient.delete<void>(`/recording/conditions/${condition_id}`);
 

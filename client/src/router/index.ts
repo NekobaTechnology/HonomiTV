@@ -92,6 +92,21 @@ const router = createRouter({
             component: () => import('@/views/Reservations/Reservations.vue'),
         },
         {
+            path: '/reservations/conditions',
+            name: 'Reservation Conditions',
+            component: () => import('@/views/Reservations/Conditions.vue'),
+        },
+        {
+            path: '/reservations/conditions/new',
+            name: 'Reservation Condition New',
+            component: () => import('@/views/Reservations/ConditionEdit.vue'),
+        },
+        {
+            path: '/reservations/conditions/:id',
+            name: 'Reservation Condition Edit',
+            component: () => import('@/views/Reservations/ConditionEdit.vue'),
+        },
+        {
             path: '/mylist/',
             name: 'Mylist',
             component: () => import('@/views/Mylist.vue'),

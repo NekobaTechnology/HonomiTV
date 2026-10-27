@@ -86,6 +86,12 @@
                     <Icon icon="fluent:save-16-regular" width="20px" height="20px" />
                     <span class="ml-1">変更を保存</span>
                 </v-btn>
+                <!-- シリーズ予約 (キーワード自動予約条件の作成画面へ) -->
+                <v-btn v-if="displayProgram !== null" class="px-3" variant="text"
+                    :disabled="!isEDCBBackend" :loading="isPreparingSeriesReservation" @click="handleSeriesReservation">
+                    <Icon icon="fluent:arrow-repeat-all-16-regular" width="20px" height="20px" />
+                    <span class="ml-1">シリーズ予約</span>
+                </v-btn>
                 <!-- mock の予約 (予約なし) の場合: 予約追加ボタン -->
                 <v-btn v-if="showAddButton" class="px-3" color="secondary" variant="flat"
                     :disabled="!isEDCBBackend" :loading="isAdding" @click="handleAddReservation">
@@ -186,12 +192,14 @@
 <script lang="ts" setup>
 
 import { ref, computed, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 
 import ReservationProgramInfo from '@/components/Reservations/ReservationProgramInfo.vue';
 import ReservationRecordingSettings from '@/components/Reservations/ReservationRecordingSettings.vue';
 import Message from '@/message';
 import { type IChannel } from '@/services/Channels';
 import { type IProgram } from '@/services/Programs';
+import ReservationConditions from '@/services/ReservationConditions';
 import Reservations, { type IReservation, type IRecordSettings, type IRecordSettingsPresets } from '@/services/Reservations';
 import useServerSettingsStore from '@/stores/ServerSettingsStore';
 import { ProgramUtils } from '@/utils';
@@ -265,6 +273,37 @@ const hasRealReservation = computed(() => hasReservation.value && !isMockReserva
 
 // 表示用の番組情報（予約があればそちらを優先）
 const displayProgram = computed(() => props.reservation?.program ?? props.program ?? null);
+
+// シリーズ予約の準備中 (キーワード提案の取得中) かどうか
+const isPreparingSeriesReservation = ref(false);
+const router = useRouter();
+
+// シリーズ予約: この番組の番組名から提案したキーワードと放送局を引き継いで、キーワード自動予約条件の作成画面を開く
+const handleSeriesReservation = async () => {
+    const program = displayProgram.value;
+    if (program === null || isPreparingSeriesReservation.value) return;
+    isPreparingSeriesReservation.value = true;
+    try {
+        const suggestion = await ReservationConditions.fetchSeriesKeywordSuggestion(program.id);
+        if (suggestion === null) return;
+        const channel = props.reservation?.channel ?? props.channel ?? null;
+        const query: Record<string, string> = {
+            keyword: suggestion.keyword,
+            source_title: program.title,
+        };
+        // 放送局を絞り込めるのは、EDCB の条件に必要な TSID まで揃っている場合のみ
+        if (channel !== null && channel.transport_stream_id !== null) {
+            query.network_id = String(channel.network_id);
+            query.transport_stream_id = String(channel.transport_stream_id);
+            query.service_id = String(channel.service_id);
+            query.channel_name = channel.name;
+        }
+        isVisible.value = false;
+        await router.push({ path: '/reservations/conditions/new', query });
+    } finally {
+        isPreparingSeriesReservation.value = false;
+    }
+};
 
 // EDCB バックエンドかどうか
 // サーバー設定がまだ取得されていない場合は EDCB と判定しない

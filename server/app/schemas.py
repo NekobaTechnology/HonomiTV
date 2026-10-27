@@ -990,3 +990,12 @@ class VersionInformation(BaseModel):
     environment: Literal['Windows', 'Linux', 'Linux-Docker', 'Linux-ARM']
     backend: Literal['EDCB', 'Mirakurun', 'EPGStation']
     encoder: Literal['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC', 'rkmppenc']
+
+# シリーズ予約用のキーワード提案
+class SeriesKeywordSuggestion(BaseModel):
+    # キーワード自動予約条件に使う検索キーワード (放送枠名 + 作品名、または作品名)
+    keyword: str
+    # 番組名から推定した作品名 (表示用)
+    display_title: str
+    # 話数表記などから作品 (シリーズ) として確定的に判定できたかどうか
+    is_series_detected: bool

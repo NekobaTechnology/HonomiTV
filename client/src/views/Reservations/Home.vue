@@ -27,6 +27,19 @@
                         :emptySubMessage="'番組表から録画予約を追加できます。'"
                         @more="$router.push('/reservations/all')"
                         @delete="handleReservationDeleted" />
+                    <!-- キーワード自動予約への導線 -->
+                    <div v-ripple class="reservations-home-container__conditions-link"
+                        @click="$router.push('/reservations/conditions')">
+                        <Icon icon="fluent:text-bullet-list-square-search-20-regular" width="26px" height="26px"
+                            class="reservations-home-container__conditions-link-icon" />
+                        <div class="reservations-home-container__conditions-link-text">
+                            <div class="reservations-home-container__conditions-link-title">キーワード自動予約</div>
+                            <div class="reservations-home-container__conditions-link-description">
+                                番組名などのキーワードで、毎週の番組や再放送を自動的に録画予約します。
+                            </div>
+                        </div>
+                        <Icon icon="fluent:chevron-right-12-regular" width="20px" height="20px" class="text-text-darken-1" />
+                    </div>
                 </div>
             </div>
         </main>
@@ -183,6 +196,39 @@ onUnmounted(() => {
 
 
 
+
+    &__conditions-link {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 32px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgb(var(--v-theme-background-lighten-1));
+        cursor: pointer;
+        user-select: none;
+        @include smartphone-vertical {
+            margin-top: 24px;
+            padding: 12px 14px;
+        }
+    }
+    &__conditions-link-icon {
+        flex-shrink: 0;
+        color: rgb(var(--v-theme-secondary));
+    }
+    &__conditions-link-text {
+        flex: 1;
+        min-width: 0;
+    }
+    &__conditions-link-title {
+        font-size: 16px;
+        font-weight: 700;
+    }
+    &__conditions-link-description {
+        margin-top: 2px;
+        font-size: 12.5px;
+        color: rgb(var(--v-theme-text-darken-1));
+    }
 
     &__upcoming-reservations--loading,
     &__recently-finished-reservations--loading,
